@@ -1,16 +1,19 @@
-# Fragmentarium — Middle Dutch fragments (Stage 0/1 seed corpus).
+# Fragmentarium — Middle Dutch fragments: curated MODEST test set (Stage 1).
 #
-# One Fragmentarium fragment ID per line ("F-xxxx"); blank lines and lines
-# starting with "#" are ignored. scripy resolves each to
-# https://fragmentarium.ms/metadata/iiif/{ID}/manifest.json
+# One fragment ID per line ("F-xxxx"); blank lines and "#" comments ignored.
+# scripy resolves each to https://fragmentarium.ms/metadata/iiif/{ID}/manifest.json
 #
-# Discovery is manual at this stage on purpose (BLUEPRINT §2): Fragmentarium
-# exposes per-fragment manifests but no documented public enumeration API yet.
-# Grow this list from the "Middle Dutch" language facet at
-# https://fragmentarium.ms/search — then automate it behind a Discoverer (§3, Stage 3).
+# These were discovered via the Fragmentarium text-language facet (ISO 639-2 "dum";
+# 314 fragments total) and hand-picked as a small, multi-page, thematically varied
+# probe corpus. The full 314 live in middle-dutch-all.txt; regenerate with
+# `scripy discover` (scripy/discover.py).
 
-# Verified: "Middle Dutch Alexander compilation", attributed to the Ferguut scribe
-# (Antwerpen, UB, MAG-P 64.19). https://fragmentarium.ms/overview/F-eadz
-F-eadz
-
-# TODO: add the remaining Middle Dutch fragments from the search facet.
+F-eadz   # Middle Dutch Alexander compilation (Ferguut scribe)
+F-04be   # Jacob van Maerlant, Rijmbijbel
+F-3r5o   # Jacob van Maerlant, Der naturen bloeme
+F-0imf   # Jan van Ruusbroec, Vanden geesteliken tabernakel
+F-x53t   # Middle Dutch sermon book
+F-74ys   # Middle Dutch prayer book
+F-0lef   # Dutch prayers
+F-0gnl   # Drawings and ex-libris in Latin and Dutch
+F-eejx   # Pseudo-Anselmus Cantuariensis, Planctus (Middle Dutch)

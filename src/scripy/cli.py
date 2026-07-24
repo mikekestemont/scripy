@@ -66,6 +66,68 @@ def embed(
         typer.echo(f"{cv.id}\t{tuple(vec.shape)}")
 
 
+@app.command()
+def discover(
+    lang: str = typer.Option("dum", "--lang", help="ISO 639-2 text-language code (dum = Middle Dutch)."),
+    out: Path = typer.Option(None, "--out", help="Write the fragment IDs to this file (one per line)."),
+) -> None:
+    """List Fragmentarium fragment IDs for a text language (Stage 3 discoverer)."""
+    from scripy.discover import fragmentarium_by_language
+    ids = fragmentarium_by_language(lang)
+    typer.echo(f"{len(ids)} fragments with text language '{lang}'")
+    if out:
+        out.write_text("\n".join(ids) + "\n")
+        typer.echo(f"wrote {out}")
+    else:
+        for fid in ids:
+            typer.echo(fid)
+
+
+@app.command()
+def harvest(
+    seed: Path = typer.Option("data/seeds/middle-dutch.txt", "--seed", help="Seed list of fragment IDs."),
+    out: Path = typer.Option("data/harvest/middle-dutch", "--out", help="Output image directory."),
+    size: str = typer.Option("1600,", "--size", help="IIIF Image API size for harvested pages."),
+    pages_per_fragment: int = typer.Option(4, "--pages-per-fragment", help="Cap pages per fragment (0 = all)."),
+) -> None:
+    """Download page images for a seed list into a working dir with provenance."""
+    from scripy.harvest import harvest as run_harvest, read_seed_list
+    ids = read_seed_list(seed)
+    typer.echo(f"harvesting {len(ids)} fragments -> {out}")
+    run_harvest(ids, out, size=size, pages_per_fragment=pages_per_fragment or None)
+
+
+@app.command()
+def eval(
+    npy: Path = typer.Argument(..., help="Embeddings .npy written by `mole embed`."),
+    provenance: Path = typer.Argument(..., help="provenance.csv from `scripy harvest`."),
+) -> None:
+    """Label-free same-fragment retrieval sanity metric over the index."""
+    from scripy.index import FlatIndex
+    idx = FlatIndex.load(npy, provenance)
+    r = idx.same_fragment_eval()
+    typer.echo(f"pages={r['pages']}  fragments={r['fragments']}  "
+               f"queries={r['queries_with_positive']}")
+    typer.secho(f"same-fragment  Top-1={r['top1']:.3f}  mAP={r['mAP']:.3f}", bold=True)
+
+
+@app.command()
+def search(
+    npy: Path = typer.Argument(..., help="Embeddings .npy written by `mole embed`."),
+    provenance: Path = typer.Argument(..., help="provenance.csv from `scripy harvest`."),
+    query: str = typer.Option(..., "--query", help="Query filename (e.g. F-eadz__00.jpg)."),
+    k: int = typer.Option(5, "-k", help="Number of neighbours to return."),
+) -> None:
+    """Return the k nearest hands to a query page."""
+    from scripy.index import FlatIndex
+    idx = FlatIndex.load(npy, provenance)
+    qi = idx.index_of(query)
+    typer.secho(f"query: {query}  (fragment {idx.fragments[qi]})", bold=True)
+    for h in idx.search(qi, k):
+        flag = "  ← same fragment" if h.fragment_id == idx.fragments[qi] else ""
+        typer.echo(f"  #{h.rank}  {h.score:.3f}  {h.filename:<16} {h.fragment_id}{flag}")
+
+
 def main() -> None:  # console-script entry point
     app()
 
