@@ -58,6 +58,41 @@ pinned checkpoint + frozen codebook):
 scripy embed F-eadz --checkpoint /path/to/pooled.pth --codebook /path/to/universal.codebook.npy
 ```
 
+## Search Middle Dutch handwriting (Stage 1)
+
+Needs the two model artifacts in `models/` (downloaded from the GPU server): the
+pinned checkpoint `pooled.pth` and the frozen universal codebook
+`universal.codebook.npy`. Then the whole pipeline is four commands:
+
+```bash
+scripy discover --lang dum --out data/seeds/middle-dutch-all.txt   # 314 fragments
+scripy harvest  --seed data/seeds/middle-dutch.txt --out data/harvest/md
+mole   prep     data/harvest/md --binarize sauvola --max-side 2048 --binarize-out data/harvest/md-bin
+mole   embed    models/pooled.pth data/harvest/md-bin data/harvest/md.npy --codebook-from models/universal.codebook.npy
+```
+
+### The Ferguut-scribe working example
+
+F-eadz is a Middle Dutch *Alexander* compilation in the hand of the **Ferguut
+scribe**. Ask the index for the nearest hands to its first leaf:
+
+```bash
+scripy search data/harvest/md.npy data/harvest/md/provenance.csv --query F-eadz__00.png -k 8
+```
+
+`#1` should be `F-eadz__01.png` — fol. 1v, the same scribe. The label-free
+same-fragment sanity metric (can each leaf find its siblings?):
+
+```bash
+scripy eval data/harvest/md.npy data/harvest/md/provenance.csv
+```
+
+**Reproduce it all in one go** (harvest → prep → embed → search):
+
+```bash
+bash scripts/demo_ferguut.sh
+```
+
 ## Test
 
 ```bash
