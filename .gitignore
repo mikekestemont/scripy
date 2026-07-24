@@ -33,3 +33,7 @@ outputs/
 .DS_Store
 .idea/
 .vscode/
+
+# downloaded model artifacts (large, not for git)
+models/
+*.pth
