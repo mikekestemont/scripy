@@ -1,0 +1,16 @@
+# Fragmentarium — Middle Dutch fragments (Stage 0/1 seed corpus).
+#
+# One Fragmentarium fragment ID per line ("F-xxxx"); blank lines and lines
+# starting with "#" are ignored. scripy resolves each to
+# https://fragmentarium.ms/metadata/iiif/{ID}/manifest.json
+#
+# Discovery is manual at this stage on purpose (BLUEPRINT §2): Fragmentarium
+# exposes per-fragment manifests but no documented public enumeration API yet.
+# Grow this list from the "Middle Dutch" language facet at
+# https://fragmentarium.ms/search — then automate it behind a Discoverer (§3, Stage 3).
+
+# Verified: "Middle Dutch Alexander compilation", attributed to the Ferguut scribe
+# (Antwerpen, UB, MAG-P 64.19). https://fragmentarium.ms/overview/F-eadz
+F-eadz
+
+# TODO: add the remaining Middle Dutch fragments from the search facet.

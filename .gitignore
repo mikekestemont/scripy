@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# scripy runtime state (never commit harvested data or indexes)
+*.db
+*.sqlite
+*.sqlite3
+*.faiss
+*.index
+*.npy
+*.parquet
+data/cache/
+data/harvest/
+runs/
+outputs/
+
+# but DO keep small curated seed lists and test fixtures
+!data/seeds/*.txt
+!tests/fixtures/*.json
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+.idea/
+.vscode/
