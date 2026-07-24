@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,8 +54,10 @@ class FlatIndex:
         # .jpg. Fragment id comes from provenance, else the "{id}__NN" filename prefix.
         self.stems = [Path(f).stem for f in filenames]
         self.provenance = {Path(k).stem: v for k, v in provenance.items()}
-        self.fragments = [self.provenance.get(s, {}).get("fragment_id") or s.split("__")[0]
-                          for s in self.stems]
+        # per-column crops are named F-xxxx__NN_cM; page stem is the part before "_c".
+        self._page_stem = [re.split(r"_c\d+$", s)[0] for s in self.stems]
+        self.fragments = [self.provenance.get(ps, {}).get("fragment_id") or s.split("__")[0]
+                          for s, ps in zip(self.stems, self._page_stem)]
 
     # ---- construction ----
     @classmethod
@@ -83,8 +86,9 @@ class FlatIndex:
             if j == query_idx:
                 continue
             f = self.filenames[j]
-            hits.append(Hit(len(hits) + 1, float(sims[j]), f,
-                            self.fragments[j], self.provenance.get(self.stems[j], {}).get("overview_url", "")))
+            ov = (self.provenance.get(self._page_stem[j], {}).get("overview_url")
+                  or f"https://fragmentarium.ms/overview/{self.fragments[j]}")
+            hits.append(Hit(len(hits) + 1, float(sims[j]), f, self.fragments[j], ov))
             if len(hits) >= k:
                 break
         return hits

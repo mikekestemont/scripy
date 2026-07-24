@@ -102,10 +102,11 @@ def crop(
     harvest: Path = typer.Option(..., "--harvest", help="Harvest dir with zones.json + provenance.csv."),
     out: Path = typer.Option(..., "--out", help="Output dir for high-res text-region crops."),
     size: str = typer.Option("full", "--size", help="IIIF size for the region (full = native)."),
+    per_column: bool = typer.Option(False, "--per-column", help="One crop per text column (vs the union box)."),
 ) -> None:
-    """Re-fetch each page's detected text zone at native resolution from IIIF."""
+    """Re-fetch each page's detected text zone(s) at native resolution from IIIF."""
     from scripy.zones import fetch_region_crops
-    fetch_region_crops(harvest, out, size=size)
+    fetch_region_crops(harvest, out, per_column=per_column, size=size)
 
 
 @app.command()

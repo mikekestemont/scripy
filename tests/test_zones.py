@@ -2,7 +2,23 @@
 
 from __future__ import annotations
 
-from scripy.zones import _pct_region_url, _service_base
+from scripy.zones import _column_boxes, _pct_region_url, _service_base
+
+
+def test_column_boxes_merges_overlapping_text_and_textmain():
+    # two real columns, each detected as overlapping Text + Text_Main; a stamp is ignored
+    dets = [
+        ["Text", 0.94, 800, 30, 1330, 450],
+        ["Text_Main", 0.94, 810, 40, 1327, 451],   # ~duplicate of the above column
+        ["Text_Main", 0.93, 210, 10, 730, 400],
+        ["Text", 0.92, 211, 11, 728, 401],          # ~duplicate of the left column
+        ["Marks_Stamp", 0.89, 686, 182, 823, 317],  # not text -> dropped
+        ["Text", 0.30, 0, 0, 50, 50],               # below min_conf -> dropped
+    ]
+    cols = _column_boxes(dets, min_conf=0.5)
+    assert len(cols) == 2                    # two columns, duplicates merged
+    assert cols[0][0] < cols[1][0]           # sorted left-to-right by x0
+    assert (210, 10, 730, 400) in cols       # left column kept (highest conf of its pair)
 
 
 def test_service_base_strips_image_request():
