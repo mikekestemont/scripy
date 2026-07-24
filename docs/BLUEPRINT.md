@@ -215,6 +215,14 @@ Differences from the original blueprint, and why:
   stage applies a *fixed* codebook; it does not learn one online in v1.
 - **Explicit temp cache + deletion edge.** Deletion is an event on the writer, not
   a background sweep, so "indexed" and "deleted" cannot disagree after a crash.
+- **Zone-aware high-res crop (built, `scripy crop`).** The preprocess stage detects
+  the text zone (`mole prep`) on the modest-resolution harvested page, then re-fetches
+  *just that zone at native resolution* via an Image API `pct:` region. This removes
+  the photographic backdrop and calibration ruler — a real retrieval confound — and
+  raises text resolution while downloading less than a full high-res page. The native
+  crop is then capped to raven's scale band (`--max-side 2048`) before binarizing.
+  Its two weak spots (fragment-unfriendly detection, classical binarization) are the
+  subject of §10.
 
 ---
 
@@ -345,7 +353,57 @@ is a `mole` release with a new version stamp and a full re-embed.
 
 ---
 
-## 10. Risks & open questions
+## 10. Preprocessing quality roadmap (future work)
+
+*Deferred — not on the v1 path, captured here because the fragment domain makes both
+worthwhile at scale. The ingest is only as good as what the encoder finally sees, and
+**most material in this space is fragments** — cuttings, single leaves, host-binding
+waste — not clean codex pages.*
+
+### 10.1 Zone detection tuned for fragments
+Off-the-shelf `YOLO_manuscripts` is trained on whole codex pages; on Fragmentarium's
+photographed fragments it fell back to whole-page on **~25%** of the corpus (no text
+zone found) and under-cropped multi-column cuttings. Every fallback re-admits exactly
+what the crop exists to remove — the backdrop (which Sauvola turns to noise) and the
+calibration ruler/barcode (fragments shot with the *same* ruler retrieve each other,
+a measured confound). Plan: **fine-tune the zone detector on fragment imagery.** `mole`
+already has the path (`scripts/train_zone_detector.py`, `mole prep --yolo-weights`,
+first used on Antwerp PAGE-XML). Assemble a fragment-specific train set (hand-boxed, or
+PAGE-XML exported from eScriptorium/Transkribus), score on **coverage** (clipping text
+is unrecoverable; extra background is cheap), and keep the stock model as fallback.
+Success = fallback rate ≪ 25% and clean crops on cuttings.
+
+### 10.2 Learned binarization by synthetic degradation
+Sauvola is a fixed classical filter: it noises the backdrop, keeps the ruler, and
+smears faded ink / bleed-through on parchment. Once the crop removes the backdrop,
+replace it with a **self-distilled** binarizer:
+- **Target:** binarize a *clean, high-resolution* crop with a strong teacher (Howe,
+  SauvolaNet, or a pretrained net) and **freeze it** (stop-gradient).
+- **Input:** degrade that same crop — parchment texture, bleed-through, uneven light
+  (DocCreator-style) **plus this corpus's real nuisances: JPEG and aggressive
+  downscale**, so the net learns to recover crisp strokes from low-res IIIF thumbnails.
+- **Loss:** foreground-weighted pixel diff (BCE/Dice — text pixels are rare) between the
+  net's output on the degraded input and the frozen clean target; several degradations
+  per crop → one target (consistency-as-augmentation).
+- **Payoff:** no manual labels, and *robustness* to the heterogeneous quality of a
+  crawl — the downscale term directly attacks the pixelation problem.
+- **Guardrails:** the collapse trap (a pure output-diff with *both* branches trainable
+  degenerates to all-white) is avoided by the frozen teacher; the net can't beat its
+  teacher on clean pages, so fold in a small hand-/DIBCO-GT set to lift the ceiling.
+  Open pretrained bases *with weights*: SauvolaNet, DocDiff, DE-GAN, the
+  Document-Binarization-Collection — all **DIBCO-trained (printed + a little
+  handwriting, not parchment)**, so use as teacher / fine-tune base and expect a domain
+  gap.
+- **Strategic alternative:** drop binarization entirely and move `mole` to a
+  grayscale/RGB front-end (binarization is a legacy of raven's white-on-black training;
+  eScriptorium/kraken already work on grayscale). Bigger change, but removes a lossy
+  step rather than perfecting it — evaluate both.
+
+Both items ship only if held-out `mole eval` macro-mAP does not regress (§9).
+
+---
+
+## 11. Risks & open questions
 
 - **Fragmentarium discovery API.** No documented public enumeration endpoint yet
   (§2). Mitigation: seed list now, pluggable `Discoverer` later. *Ask the team.*
@@ -354,6 +412,12 @@ is a `mole` release with a new version stamp and a full re-embed.
   must normalise both from Stage 0 so v3 is not a rewrite later.
 - **Image-server politeness.** Loris/other servers can be slow or rate-limited.
   Per-host limits, `Retry-After`, cached `info.json`, descriptive `User-Agent`.
+- **Fragments are the domain, not the exception.** Most material here is cuttings and
+  loose leaves photographed on a backdrop with a ruler — which breaks stock zone
+  detection (~25% whole-page fallback) and pollutes binarization. Ruler-sharing is a
+  *measured* confound (F-eadz's top neighbour was a different fragment shot with the
+  identical STANDARDGRAPH ruler). Mitigation now: zone-aware crop (§4). Future:
+  fragment-tuned detection + learned binarization (§10).
 - **Retrieval granularity.** Page-level vectors match `mole` today. Fragment
   reassembly might eventually want line- or column-level vectors; keep the canvas →
   vector mapping one-to-many-capable in the schema so that is additive.
