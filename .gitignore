@@ -37,3 +37,6 @@ outputs/
 # downloaded model artifacts (large, not for git)
 models/
 *.pth
+
+# mockup data build intermediate (regenerated from the index)
+mockup_data.json
