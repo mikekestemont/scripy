@@ -40,7 +40,14 @@ mole embed "$CKPT" "$BIN" "$NPY" --codebook-from "$CODEBOOK"
 echo "== 4/4  retrieval =="
 scripy eval "$NPY" "$PROV"
 echo
-echo "-- nearest hands to F-eadz fol. 1r (the Ferguut scribe) --"
+echo "-- nearest pages to F-eadz fol. 1r (page-level smoke test) --"
 scripy search "$NPY" "$PROV" --query F-eadz__00.png -k 8
 echo
-echo "Expected: #1 is F-eadz__01.png (fol. 1v, same scribe)."
+echo "Expected: F-eadz__01.png (fol. 1v, same scribe) ranks near the top."
+echo
+echo "-- nearest MANUSCRIPTS to F-eadz (object-level: mean over all its leaves) --"
+scripy search "$NPY" "$PROV" --query F-eadz --by-object -k 8
+echo
+echo "This is the scholarly query: one hit per manuscript, ranked by the whole"
+echo "object's averaged hand. On the full Middle Dutch corpus, F-iruj surfaces as"
+echo "the #1 same-hand lead for the Ferguut scribe."

@@ -6,6 +6,13 @@ provides a label-free sanity metric: *same-fragment retrieval* — can a page fi
 other leaves of its own fragment? With Fragmentarium's dispersed fragments this is a
 lower bound on same-hand retrieval (leaves of one manuscript are often catalogued as
 separate fragments), but it needs no hand labels and exercises the whole pipeline.
+
+On top of page-level search, the index also pools pages into one vector per *object*
+(a manuscript / ``fragment_id``) by averaging its page unit-vectors — see
+:meth:`FlatIndex.object_vectors`. Object→object search is the query a scholar actually
+wants ("which other books are in this hand?"); averaging denoises per-leaf variation
+and returns one ranked hit per manuscript. We ignore, for now, that one document may
+contain more than one hand.
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-__all__ = ["FlatIndex", "Hit"]
+__all__ = ["FlatIndex", "Hit", "ObjectHit"]
 
 
 @dataclass(frozen=True)
@@ -27,6 +34,15 @@ class Hit:
     score: float
     filename: str
     fragment_id: str
+    overview_url: str
+
+
+@dataclass(frozen=True)
+class ObjectHit:
+    rank: int
+    score: float
+    fragment_id: str
+    n_pages: int
     overview_url: str
 
 
@@ -58,6 +74,7 @@ class FlatIndex:
         self._page_stem = [re.split(r"_c\d+$", s)[0] for s in self.stems]
         self.fragments = [self.provenance.get(ps, {}).get("fragment_id") or s.split("__")[0]
                           for s, ps in zip(self.stems, self._page_stem)]
+        self._object_cache: tuple[list[str], np.ndarray] | None = None
 
     # ---- construction ----
     @classmethod
@@ -96,6 +113,65 @@ class FlatIndex:
     def index_of(self, filename: str) -> int:
         return self.filenames.index(filename)
 
+    # ---- object-level (one vector per manuscript) ----
+    def object_vectors(self) -> tuple[list[str], np.ndarray]:
+        """One unit vector per object: the renormalized mean of its page unit-vectors.
+
+        A manuscript (``fragment_id``) is the real unit of retrieval — a scholar asks
+        "which *other books* are in this hand", not "which other leaf". Averaging the
+        pages of an object cancels page-specific noise (recto/verso, damage,
+        illumination, layout) and keeps the shared-hand signal, so object queries are
+        both cleaner (higher-margin) and de-duplicated (one hit per manuscript instead
+        of its several leaves crowding the top). We ignore, for now, that a single
+        document may contain more than one hand.
+
+        Returns ``(object_ids, vecs)`` with ``object_ids`` sorted and ``vecs`` an
+        ``(n_objects, dim)`` array of unit vectors aligned to it. Cached.
+        """
+        if self._object_cache is None:
+            ids = sorted(set(self.fragments))
+            frags = np.asarray(self.fragments)
+            mat = np.zeros((len(ids), self.vecs.shape[1]), dtype=np.float32)
+            for i, oid in enumerate(ids):
+                mat[i] = self.vecs[frags == oid].mean(axis=0)
+            norms = np.linalg.norm(mat, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            self._object_cache = (ids, (mat / norms).astype(np.float32))
+        return self._object_cache
+
+    def _resolve_object(self, query: str) -> str:
+        """Accept a fragment id (``F-eadz``) or any of its page filenames."""
+        ids, _ = self.object_vectors()
+        if query in ids:
+            return query
+        if query in self.filenames:
+            return self.fragments[self.filenames.index(query)]
+        stem = re.split(r"_c\d+$", Path(query).stem)[0].split("__")[0]
+        if stem in ids:
+            return stem
+        raise ValueError(f"no object matches query {query!r}")
+
+    def search_object(self, query: str, k: int = 5) -> list[ObjectHit]:
+        """Return the k nearest *objects* to the query object (mean-pooled → cosine)."""
+        ids, ovecs = self.object_vectors()
+        qid = self._resolve_object(query)
+        qi = ids.index(qid)
+        sims = ovecs @ ovecs[qi]
+        order = np.argsort(-sims)
+        frags = np.asarray(self.fragments)
+        hits: list[ObjectHit] = []
+        for j in order:
+            if j == qi:
+                continue
+            oid = ids[j]
+            members = np.nonzero(frags == oid)[0]
+            ov = (self.provenance.get(self._page_stem[members[0]], {}).get("overview_url")
+                  or f"https://fragmentarium.ms/overview/{oid}")
+            hits.append(ObjectHit(len(hits) + 1, float(sims[j]), oid, len(members), ov))
+            if len(hits) >= k:
+                break
+        return hits
+
     # ---- label-free evaluation ----
     def same_fragment_eval(self) -> dict:
         """Top-1 and mAP where 'relevant' = a different page of the same fragment.
@@ -132,4 +208,41 @@ class FlatIndex:
             "queries_with_positive": n_q,
             "top1": top1_hits / n_q if n_q else 0.0,
             "mAP": float(np.mean(aps)) if aps else 0.0,
+        }
+
+    def object_split_eval(self) -> dict:
+        """Label-free *object-level* smoke test: does averaging preserve object identity?
+
+        Split each multi-page object's pages into two halves, mean-pool each half into a
+        unit vector, and check whether the two halves of one object land nearest each
+        other among all half-vectors. High Top-1 means the pooled representation is a
+        stable per-object signal rather than an artefact of any single leaf. This is the
+        object-level analogue of :meth:`same_fragment_eval`; objects with <2 pages are
+        skipped, and with few pages per object it is a weak (but honest) proxy — the
+        true target, same-*hand* retrieval across objects, needs hand labels we do not
+        have here.
+        """
+        frags = np.asarray(self.fragments)
+        ids = [o for o in sorted(set(self.fragments)) if int((frags == o).sum()) >= 2]
+        halves: list[np.ndarray] = []
+        owner: list[str] = []
+        for oid in ids:
+            members = np.nonzero(frags == oid)[0]
+            cut = len(members) // 2
+            for part in (members[:cut], members[cut:]):
+                h = self.vecs[part].mean(axis=0)
+                nrm = float(np.linalg.norm(h)) or 1.0
+                halves.append(h / nrm)
+                owner.append(oid)
+        if not halves:
+            return {"objects_with_2plus_pages": 0, "halves": 0, "top1": 0.0}
+        H = np.asarray(halves, dtype=np.float32)
+        owners = np.asarray(owner)
+        sims = H @ H.T
+        np.fill_diagonal(sims, -np.inf)
+        nn = np.argmax(sims, axis=1)
+        return {
+            "objects_with_2plus_pages": len(ids),
+            "halves": len(halves),
+            "top1": float((owners[nn] == owners).mean()),
         }

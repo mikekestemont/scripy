@@ -85,16 +85,23 @@ def discover(
 
 @app.command()
 def harvest(
-    seed: Path = typer.Option("data/seeds/middle-dutch.txt", "--seed", help="Seed list of fragment IDs."),
+    seed: Path = typer.Option("data/seeds/middle-dutch.txt", "--seed", help="Seed list: Fragmentarium IDs, `<id> <manifest-url>` pairs, or bare manifest URLs."),
     out: Path = typer.Option("data/harvest/middle-dutch", "--out", help="Output image directory."),
     size: str = typer.Option("1600,", "--size", help="IIIF Image API size for harvested pages."),
-    pages_per_fragment: int = typer.Option(4, "--pages-per-fragment", help="Cap pages per fragment (0 = all)."),
+    pages_per_fragment: int = typer.Option(4, "--pages-per-fragment", help="Cap pages per source (0 = all)."),
+    folios_only: bool = typer.Option(False, "--folios-only", help="Keep only folio-labelled canvases (drop binding/flyleaf/opening shots)."),
+    manifest: str = typer.Option("", "--manifest", help="Harvest a single IIIF manifest URL instead of a seed list (use with --id)."),
+    id: str = typer.Option("", "--id", help="Short id / filename prefix for a single --manifest source."),
 ) -> None:
-    """Download page images for a seed list into a working dir with provenance."""
+    """Download page images for a seed list (or one --manifest) into a working dir with provenance."""
     from scripy.harvest import harvest as run_harvest, read_seed_list
-    ids = read_seed_list(seed)
-    typer.echo(f"harvesting {len(ids)} fragments -> {out}")
-    run_harvest(ids, out, size=size, pages_per_fragment=pages_per_fragment or None)
+    if manifest:
+        sources = [f"{id} {manifest}".strip()] if id else [manifest]
+    else:
+        sources = read_seed_list(seed)
+    typer.echo(f"harvesting {len(sources)} source(s) -> {out}")
+    run_harvest(sources, out, size=size, pages_per_fragment=pages_per_fragment or None,
+                folios_only=folios_only)
 
 
 @app.command()
@@ -121,18 +128,30 @@ def eval(
     typer.echo(f"pages={r['pages']}  fragments={r['fragments']}  "
                f"queries={r['queries_with_positive']}")
     typer.secho(f"same-fragment  Top-1={r['top1']:.3f}  mAP={r['mAP']:.3f}", bold=True)
+    o = idx.object_split_eval()
+    typer.echo(f"objects(≥2 pages)={o['objects_with_2plus_pages']}")
+    typer.secho(f"object split-half  Top-1={o['top1']:.3f}", bold=True)
 
 
 @app.command()
 def search(
     npy: Path = typer.Argument(..., help="Embeddings .npy written by `mole embed`."),
     provenance: Path = typer.Argument(..., help="provenance.csv from `scripy harvest`."),
-    query: str = typer.Option(..., "--query", help="Query filename (e.g. F-eadz__00.jpg)."),
+    query: str = typer.Option(..., "--query", help="Query page filename, or a fragment id with --by-object."),
     k: int = typer.Option(5, "-k", help="Number of neighbours to return."),
+    by_object: bool = typer.Option(
+        False, "--by-object", "-o",
+        help="Search object→object: pool each manuscript's pages and rank whole objects."),
 ) -> None:
-    """Return the k nearest hands to a query page."""
+    """Return the k nearest hands to a query page (default) or a query object (--by-object)."""
     from scripy.index import FlatIndex
     idx = FlatIndex.load(npy, provenance)
+    if by_object:
+        qid = idx._resolve_object(query)
+        typer.secho(f"query object: {qid}  (mean of its pages)", bold=True)
+        for h in idx.search_object(qid, k):
+            typer.echo(f"  #{h.rank}  {h.score:.3f}  {h.fragment_id:<10} ({h.n_pages}p)  {h.overview_url}")
+        return
     qi = idx.index_of(query)
     typer.secho(f"query: {query}  (fragment {idx.fragments[qi]})", bold=True)
     for h in idx.search(qi, k):
